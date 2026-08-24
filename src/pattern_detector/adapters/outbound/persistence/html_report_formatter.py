@@ -529,6 +529,7 @@ class HtmlReportFormatter(ReportFormatterPort):
         lines = [
             "# 🦀 DPX-Rust: Codebase Architecture Map & Refactoring Analysis",
             "",
+            "## 📌 Project Overview",
             f"- **Target Project:** `{project_name}`",
             f"- **Files Scanned:** `{report.scanned_files_count}`",
             f"- **Total Architecture Findings:** `{len(dets)}`",
@@ -539,10 +540,92 @@ class HtmlReportFormatter(ReportFormatterPort):
             "---",
             "",
             "## 🎯 Task for AI / LLM Rust Architect",
-            "> 1. **Analyze Modularity & Trait Abstractions:** Review struct/trait distributions and decoupling.",
+            "> **Prompt Instructions:**",
+            "> 1. **Analyze Modularity & Trait Abstractions:** Review struct/trait distributions, high-coupling components, and decoupling.",
             "> 2. **Review Safety Invariants & Smells:** Audit any unsafe blocks, KISS complexity, and cyclic dependencies.",
-            "> 3. **Propose Idiomatic Rust Refactorings:** Suggest Builder, Typestate, or Tower Service architectures.",
+            "> 3. **Propose Idiomatic Rust Refactorings:** Suggest Builder, Typestate, or Tower Service architectures with concrete code signatures.",
+            "> 4. **SOLID Improvements:** Explain how to resolve the identified smells cleanly.",
             "",
             "---",
+            "",
         ]
+
+        patterns_by_type: dict[str, list[Detection]] = {}
+        violations_by_type: dict[str, list[Detection]] = {}
+        adherences_by_type: dict[str, list[Detection]] = {}
+        file_to_findings: dict[str, list[str]] = {}
+
+        for d in dets:
+            status = self._classify_detection_status(d)
+            ptype = d.pattern_type.value.upper()
+            if status == "pattern":
+                patterns_by_type.setdefault(ptype, []).append(d)
+            elif status == "violation":
+                violations_by_type.setdefault(ptype, []).append(d)
+            else:
+                adherences_by_type.setdefault(ptype, []).append(d)
+
+            loc_file = d.primary_location.file_path if d.primary_location and d.primary_location.file_path else "unknown"
+            short_file = loc_file.replace("\\", "/").split("/")[-1]
+            file_to_findings.setdefault(short_file, []).append(f"{ptype} ({status})")
+
+        # 1. Design Patterns & Idioms
+        lines.append(f"## 🔷 Active Design Patterns & Rust Idioms ({counts.get('pattern', 0)} instances)")
+        if patterns_by_type:
+            for ptype, items in sorted(patterns_by_type.items()):
+                lines.append(f"### Pattern: `{ptype}` ({len(items)} instances)")
+                for d in items:
+                    loc = f"{d.primary_location.file_path}:{d.primary_location.line}" if d.primary_location else ""
+                    loc_str = f" in `{loc}`" if loc else ""
+                    lines.append(f"- **{d.target_name}** ({d.target_kind}, confidence {d.confidence.percentage_str}){loc_str}")
+                    lines.append(f"  - *Summary:* {d.summary}")
+            lines.append("")
+        else:
+            lines.append("*No design patterns identified.*\n")
+
+        lines.append("---")
+        lines.append("")
+
+        # 2. Violations & Code Smells
+        if violations_by_type:
+            lines.append(f"## ⚠️ Architectural Violations & Code Smells ({counts.get('violation', 0)} instances)")
+            for vtype, items in sorted(violations_by_type.items()):
+                lines.append(f"### Violation: `{vtype}` ({len(items)} occurrences)")
+                for d in items[:35]:
+                    loc = f"{d.primary_location.file_path}:{d.primary_location.line}" if d.primary_location else ""
+                    loc_str = f" in `{loc}`" if loc else ""
+                    lines.append(f"- **{d.target_name}** ({d.confidence.percentage_str}){loc_str}")
+                    lines.append(f"  - *Risk / Smell:* {d.summary}")
+                    for ev in d.evidences[:2]:
+                        lines.append(f"  - *Evidence:* `+{int(ev.weight * 100)}%` [{ev.rule_code}] {ev.description}")
+                if len(items) > 35:
+                    lines.append(f"  *(... and {len(items) - 35} more {vtype} occurrences)*")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        # 3. Clean Adherences
+        if adherences_by_type:
+            lines.append(f"## ✅ Clean Architectural Adherences ({counts.get('adherence', 0)} instances)")
+            for atype, items in sorted(adherences_by_type.items()):
+                lines.append(f"### Principle: `{atype}` ({len(items)} instances)")
+                for d in items[:30]:
+                    loc = f"{d.primary_location.file_path}:{d.primary_location.line}" if d.primary_location else ""
+                    loc_str = f" in `{loc}`" if loc else ""
+                    lines.append(f"- **{d.target_name}** ({d.confidence.percentage_str}){loc_str} - {d.summary}")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        # 4. Module & File Hotspots Distribution
+        lines.append("## 🗺️ Module & File Hotspots Distribution")
+        top_files = sorted(file_to_findings.items(), key=lambda x: len(x[1]), reverse=True)[:25]
+        if top_files:
+            for fname, f_items in top_files:
+                p_count = sum(1 for x in f_items if "pattern" in x)
+                v_count = sum(1 for x in f_items if "violation" in x)
+                a_count = sum(1 for x in f_items if "adherence" in x)
+                lines.append(f"- **`{fname}`**: {len(f_items)} findings ({v_count} violations, {p_count} patterns, {a_count} adherences)")
+        lines.append("")
+
         return "\n".join(lines)
