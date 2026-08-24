@@ -29,10 +29,14 @@ class DryRule(BasePatternRule):
         for h, duplicates in body_hashes.items():
             if len(duplicates) >= 2:
                 primary_name, primary_fn = duplicates[0]
-                other_names = [d[0] for d in duplicates[1:]]
+                names_with_loc = []
+                for name, fn in duplicates:
+                    file_stem = fn.location.file_path.split("/")[-1] if fn.location else ""
+                    names_with_loc.append(f"{name} ({file_stem})" if file_stem else name)
+
                 evidences = [
                     Evidence(
-                        description=f"DRY Violation: Identical implementation logic duplicated across {len(duplicates)} functions ({primary_name}, {', '.join(other_names[:3])})",
+                        description=f"DRY Violation: Identical implementation logic duplicated across {len(duplicates)} function location(s): {', '.join(names_with_loc[:3])}",
                         weight=0.80,
                         rule_code="DRY_CODE_DUPLICATION",
                         location=primary_fn.location,

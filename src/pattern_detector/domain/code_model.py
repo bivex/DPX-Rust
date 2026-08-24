@@ -197,13 +197,27 @@ class CodeModel:
         return res
 
     def all_functions(self) -> list[FunctionModel]:
-        res = []
+        seen: set[int] = set()
+        res: list[FunctionModel] = []
+
+        def _add(fn: FunctionModel) -> None:
+            obj_id = id(fn)
+            if obj_id not in seen:
+                seen.add(obj_id)
+                res.append(fn)
+
         for mod in self.modules.values():
-            res.extend(mod.functions.values())
+            for fn in mod.functions.values():
+                _add(fn)
             for st in mod.structs.values():
-                res.extend(st.methods.values())
+                for m in st.methods.values():
+                    _add(m)
             for en in mod.enums.values():
-                res.extend(en.methods.values())
+                for m in en.methods.values():
+                    _add(m)
+            for imp in mod.impls:
+                for m in imp.methods.values():
+                    _add(m)
         return res
 
     def find_struct(self, name: str) -> StructModel | None:
